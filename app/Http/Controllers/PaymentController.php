@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Events\OrderPaid;
 use App\Exceptions\InvalidRequestException;
+use App\Models\Installment;
 use App\Models\Order;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
