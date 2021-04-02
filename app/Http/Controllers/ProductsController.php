@@ -55,7 +55,7 @@ class ProductsController extends Controller
                 }
             }
         }
-
+//dd($builder);
         // 最后通过 getParams() 方法取回构造好的查询参数
         $result = app('es')->search($builder->getParams());
 
@@ -95,6 +95,99 @@ class ProductsController extends Controller
             'category' => $category ?? null,
             'properties' => $properties,
             'propertyFilters' => $propertyFilters,
+        ]);
+    }
+    public function index2(Request $request)
+    {
+        $page    = $request->input('page', 1);
+        $perPage = 16;
+        $params = [
+            'index' => 'products',
+            'type'  => '_doc',
+            'body'  => [
+                'query' => [
+                    'bool' => [
+                        'filter' => [],
+                        'must'   => [],
+                    ],
+                ],
+            ],
+        ];
+        $params['body']['from'] = $page;
+        $params['body']['size'] = $perPage;
+        if ($request->input('category_id') && $category = Category::find($request->input('category_id'))) {
+            $params['body']['query']['bool']['filter'][] = [
+                'term' => ['category_id' => $category->id]
+            ];
+        }
+        if ($search = $request->input('search', '')) {
+            $keywords = array_filter(explode(' ', $search));
+            // 调用查询构造器的关键词筛选
+            foreach ($keywords as $keyword) {
+                $params['body']['query']['bool']['must'][] = [
+                    'multi_match' => [
+                        'query' => $keyword,
+                        'fields' => [
+                            'title^3',
+                            'long_title^2',
+                            'category^2',
+                            'description',
+                            'skus_title',
+                            'skus_description',
+                            'properties_value',
+                        ],
+                    ]
+                ];
+            }
+        }
+        $propertyFilters = [];
+        if ($filterString = $request->input('filters')) {
+            $filterArray = explode('|', $filterString);
+            foreach ($filterArray as $filter) {
+                list($name, $value) = explode(':', $filter);
+                $propertyFilters[$name] = $value;
+                // 调用查询构造器的属性筛选
+                $params['body']['aggs'] = [
+                    'properties' => [
+                        'nested' => [
+                            'path' => 'properties',
+                        ],
+                        'aggs'   => [
+                            'properties' => [
+                                'terms' => [
+                                    'field' => 'properties.name',
+                                ],
+                                'aggs'   => [
+                                    'value' => [
+                                        'terms' => [
+                                            'field' => 'properties.value',
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ];
+            }
+        }
+        $result = app('es')->search($params);
+        dd($result);
+        $productIds = collect($result['hits']['hits'])->pluck('_id')->all();
+        $products = Product::query()->byIds($productIds)->get();
+
+        // 返回一个 LengthAwarePaginator 对象
+        $pager = new LengthAwarePaginator($products, $result['hits']['total']['value'], $perPage, $page, [
+            'path' => route('products.index', false), // 手动构建分页的 url
+        ]);
+        return view('products.index', [
+            'products' => $pager,
+            'filters'  => [
+                'search' => '',
+                'order'  => '',
+            ],
+            'category' => $category ?? null,
+            'properties' => [],
+            'propertyFilters' => [],
         ]);
     }
 
